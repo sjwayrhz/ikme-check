@@ -153,7 +153,9 @@ def merge_results(part_files):
 
 def send_email(to, data):
     avail = sorted(set(data["available"]))
-    done_total = len(data["available"]) + len(data["taken"]) + len(data["error"])
+    taken = sorted(set(data["taken"]))
+    errors = sorted(set(data["error"]))
+    done_total = len(avail) + len(taken) + len(errors)
     complete = done_total >= 17576
     subject = (f"ik.me 三位前缀筛查完成（可用 {len(avail)} 个）" if complete
                else f"ik.me 筛查未完成（已查 {done_total}/17576，可用 {len(avail)} 个）")
@@ -161,11 +163,17 @@ def send_email(to, data):
         "ik.me 三位前缀筛查" + ("已完成（17576 种全量）。" if complete
                               else f"中断，仅查了 {done_total}/17576。"),
         f"可用: {len(avail)} 个",
-        f"被占: {len(data['taken'])} 个",
-        f"出错: {len(data['error'])} 个",
+        f"被占: {len(taken)} 个",
+        f"出错: {len(errors)} 个",
         "",
-        "可用列表：",
-        ", ".join(w + "@ik.me" for w in avail),
+        "可用列表（仅前缀）：",
+        ", ".join(avail),
+        "",
+        "被占列表（仅前缀）：",
+        ", ".join(taken),
+        "",
+        "出错列表（仅前缀）：",
+        ", ".join(errors) if errors else "无",
     ])
     r = subprocess.run(
         [sys.executable, SEND_MAIL, "--to", to, "--subject", subject,
