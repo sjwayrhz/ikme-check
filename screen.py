@@ -31,14 +31,13 @@ from playwright.sync_api import sync_playwright
 BASE = "https://welcome.infomaniak.com"
 SIGNUP = BASE + "/signup/myksuite?referrer=shop"
 HERE = os.path.dirname(os.path.abspath(__file__))
-RESULT_FILE = os.path.join(HERE, "result.json")
 SEND_MAIL = "/root/wula/send_mail.py"  # 复用 wula 项目的 Brevo 发信脚本
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
 
 
-def all_combos():
-    return [''.join(c) for c in itertools.product(string.ascii_lowercase, repeat=3)]
+def all_combos(n=3):
+    return [''.join(c) for c in itertools.product(string.ascii_lowercase, repeat=n)]
 
 
 def load_json(path):
@@ -134,9 +133,9 @@ def run_chunk(worker_id, words, out_path):
     print(f"[w{worker_id}] 结束", flush=True)
 
 
-def merge_results(part_files):
-    """把各 worker 的结果并入 result.json（去重）。"""
-    base = load_json(RESULT_FILE)
+def merge_results(part_files, result_file):
+    """把各 worker 的结果并入结果文件（去重）。"""
+    base = load_json(result_file)
     seen = set(base["available"]) | set(base["taken"]) | set(base["error"])
     for pf in part_files:
         if not os.path.exists(pf):
@@ -147,21 +146,21 @@ def merge_results(part_files):
                 if w not in seen:
                     seen.add(w)
                     base[k].append(w)
-    save_json(base, RESULT_FILE)
+    save_json(base, result_file)
     return base
 
 
-def send_email(to, data):
+def send_email(to, data, total, length):
     avail = sorted(set(data["available"]))
     taken = sorted(set(data["taken"]))
     errors = sorted(set(data["error"]))
     done_total = len(avail) + len(taken) + len(errors)
-    complete = done_total >= 17576
-    subject = (f"ik.me 三位前缀筛查完成（可用 {len(avail)} 个）" if complete
-               else f"ik.me 筛查未完成（已查 {done_total}/17576，可用 {len(avail)} 个）")
+    complete = done_total >= total
+    subject = (f"ik.me {length}位前缀筛查完成（可用 {len(avail)} 个）" if complete
+               else f"ik.me 筛查未完成（已查 {done_total}/{total}，可用 {len(avail)} 个）")
     text = "\n".join([
-        "ik.me 三位前缀筛查" + ("已完成（17576 种全量）。" if complete
-                              else f"中断，仅查了 {done_total}/17576。"),
+        f"ik.me {length}位前缀筛查" + (f"已完成（{total} 种全量）。" if complete
+                              else f"中断，仅查了 {done_total}/{total}。"),
         f"可用: {len(avail)} 个",
         f"被占: {len(taken)} 个",
         f"出错: {len(errors)} 个",
@@ -186,21 +185,25 @@ def send_email(to, data):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--all", action="store_true", help="穷举全部 17576 种组合")
+    ap.add_argument("--all", action="store_true", help="穷举全部组合")
+    ap.add_argument("--length", type=int, default=3, help="前缀长度（默认 3）")
     ap.add_argument("--workers", type=int, default=1, help="并发 worker 数")
     ap.add_argument("--email", default=None, help="跑完后把结果发到该邮箱")
     ap.add_argument("prefixes", nargs="*", help="指定要查的前缀")
     args = ap.parse_args()
 
+    total = 26 ** args.length
+    result_file = os.path.join(HERE, "result.json" if args.length == 3
+                               else f"result{args.length}.json")
     if args.all:
-        targets = all_combos()
+        targets = all_combos(args.length)
     elif args.prefixes:
         targets = args.prefixes
     else:
         from words import WORDS
         targets = list(WORDS)
 
-    base = load_json(RESULT_FILE)
+    base = load_json(result_file)
     done = set(base["available"]) | set(base["taken"]) | set(base["error"])
     targets = [w for w in targets if w not in done]
     print(f"目标 {len(targets) + len(done)} 个，已查 {len(done)}，本次 {len(targets)}",
@@ -212,7 +215,7 @@ def main():
         return
 
     if n == 1:
-        run_chunk(0, targets, RESULT_FILE)
+        run_chunk(0, targets, result_file)
     else:
         chunks = [targets[i::n] for i in range(n)]
         part_files = [os.path.join(HERE, f"result_w{i}.json") for i in range(n)]
@@ -225,14 +228,14 @@ def main():
                 time.sleep(10)  # 错峰启动，避免同时加载打爆内存
         for p in procs:
             p.join()
-        data = merge_results(part_files)
+        data = merge_results(part_files, result_file)
         for pf in part_files:
             if os.path.exists(pf):
                 os.remove(pf)
         print(f"合并完成：可用 {len(data['available'])}，"
               f"被占 {len(data['taken'])}，出错 {len(data['error'])}", flush=True)
         if args.email:
-            ok = send_email(args.email, data)
+            ok = send_email(args.email, data, total, args.length)
             print("邮件已发送" if ok else "邮件发送失败", flush=True)
 
 
