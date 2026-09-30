@@ -91,8 +91,11 @@ def run_chunk(worker_id, words, out_path):
         return
     consec_err = 0
     with sync_playwright() as pw:
-        browser = pw.chromium.launch(
-            args=["--no-sandbox", "--disable-blink-features=AutomationControlled"])
+        browser = pw.chromium.launch(args=[
+            "--no-sandbox",
+            "--disable-dev-shm-usage",  # /dev/shm 小时防止渲染进程崩溃
+            "--disable-blink-features=AutomationControlled",
+        ])
         ctx = browser.new_context(user_agent=UA, locale="en-US",
                                   viewport={"width": 1280, "height": 900})
         page = ctx.new_page()
