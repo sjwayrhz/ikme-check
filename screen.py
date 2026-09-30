@@ -153,9 +153,13 @@ def merge_results(part_files):
 
 def send_email(to, data):
     avail = sorted(set(data["available"]))
-    subject = f"ik.me 三位前缀筛查完成（可用 {len(avail)} 个）"
+    done_total = len(data["available"]) + len(data["taken"]) + len(data["error"])
+    complete = done_total >= 17576
+    subject = (f"ik.me 三位前缀筛查完成（可用 {len(avail)} 个）" if complete
+               else f"ik.me 筛查未完成（已查 {done_total}/17576，可用 {len(avail)} 个）")
     text = "\n".join([
-        "ik.me 三位前缀筛查已完成（17576 种全量，含之前查过的 322 个单词）。",
+        "ik.me 三位前缀筛查" + ("已完成（17576 种全量）。" if complete
+                              else f"中断，仅查了 {done_total}/17576。"),
         f"可用: {len(avail)} 个",
         f"被占: {len(data['taken'])} 个",
         f"出错: {len(data['error'])} 个",
@@ -209,6 +213,8 @@ def main():
             p = mp.Process(target=run_chunk, args=(i, chunks[i], part_files[i]))
             p.start()
             procs.append(p)
+            if i < n - 1:
+                time.sleep(10)  # 错峰启动，避免同时加载打爆内存
         for p in procs:
             p.join()
         data = merge_results(part_files)
